@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, redirect, url_for
+from flask import Flask, request, render_template
 import numpy as np
 import pandas as pd
 import joblib
@@ -23,6 +23,9 @@ except Exception as e:
     model = None
 
 new_model = None  # Placeholder for the new model
+
+# Preprocessing pipeline
+preprocessing = None
 
 # Define a route for the home page
 @app.route('/')
@@ -49,7 +52,7 @@ def predict():
             'amount': amount,
             'oldbalanceOrg': oldbalanceOrg,
             'newbalanceOrig': newbalanceOrig,
-            
+            'oldbalanceDest': oldbalanceDest,
             'newbalanceDest': newbalanceDest,
             'type_PAYMENT': type_payment,
             'type_TRANSFER': type_transfer
@@ -64,18 +67,22 @@ def predict():
         # Predict using the initial model
         if model:
             prob_old = model.predict_proba(X)[:, 1][0]
+            fraud_status_old = "Fraud" if prob_old >= 0.5 else "Not Fraud"
             logging.info(f"Prediction with initial model: {prob_old}")
         else:
             prob_old = None
+            fraud_status_old = "Model not loaded"
             logging.warning("Initial model is not loaded, cannot make prediction.")
 
         # Predict using the new model if available
         prob_new = None
+        fraud_status_new = None
         if new_model:
             prob_new = new_model.predict_proba(X)[:, 1][0]
+            fraud_status_new = "Fraud" if prob_new >= 0.5 else "Not Fraud"
             logging.info(f"Prediction with new model: {prob_new}")
 
-        return render_template('result.html', prob_old=prob_old, prob_new=prob_new)
+        return render_template('result.html', prob_old=prob_old, prob_new=prob_new, fraud_status_old=fraud_status_old, fraud_status_new=fraud_status_new)
 
     except Exception as e:
         logging.error(f"Error during prediction: {e}")
