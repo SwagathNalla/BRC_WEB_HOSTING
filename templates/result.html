@@ -14,9 +14,11 @@
                 <h3 class="card-title">Prediction Result</h3>
             </div>
             <div class="card-body text-center">
-                <p class="lead text-success">Old Model Prediction: {{ prob_old }}</p>
+                {% if prob_old is not none %}
+                <p class="lead text-success">Old Model Prediction: Probability {{ prob_old }} - {{ fraud_status_old }}</p>
+                {% endif %}
                 {% if prob_new is not none %}
-                <p class="lead text-info">New Model Prediction: {{ prob_new }}</p>
+                <p class="lead text-info">New Model Prediction: Probability {{ prob_new }} - {{ fraud_status_new }}</p>
                 {% endif %}
                 <a href="/" class="btn btn-primary btn-block">Go Back</a>
             </div>
