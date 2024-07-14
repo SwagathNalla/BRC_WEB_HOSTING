@@ -8,6 +8,7 @@ from sklearn.compose import make_column_transformer, make_column_selector
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder
 import logging
+import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -15,17 +16,34 @@ logging.basicConfig(level=logging.INFO)
 app = Flask(__name__)
 
 # Load the initial model
-try:
-    model = joblib.load('model_6.pkl')
-    logging.info("Initial model loaded successfully.")
-except Exception as e:
-    logging.error(f"Error loading initial model: {e}")
-    model = None
+def load_model():
+    try:
+        model = joblib.load('model_6.pkl')
+        logging.info("Initial model loaded successfully.")
+    except Exception as e:
+        logging.error(f"Error loading initial model: {e}")
+        model = None
+    return model
 
-new_model = None  # Placeholder for the new model
+model = load_model()
+new_model = None
+
+# Check if a new model exists
+if os.path.exists('new_model.pkl'):
+    try:
+        new_model = joblib.load('new_model.pkl')
+        logging.info("New model loaded successfully.")
+    except Exception as e:
+        logging.error(f"Error loading new model: {e}")
+        new_model = None
 
 # Preprocessing pipeline
-preprocessing = None
+num_pipeline = make_pipeline(SimpleImputer(strategy='median'))
+cat_pipeline = make_pipeline(SimpleImputer(strategy='most_frequent'), OneHotEncoder(handle_unknown='ignore'))
+preprocessing = make_column_transformer(
+    (num_pipeline, make_column_selector(dtype_include=np.number)),
+    (cat_pipeline, make_column_selector(dtype_exclude=np.number))
+)
 
 # Define a route for the home page
 @app.route('/')
@@ -88,61 +106,50 @@ def predict():
         logging.error(f"Error during prediction: {e}")
         return render_template('error.html', error_message=str(e))
 
-# Route to upload and preprocess data
-@app.route('/preprocess', methods=['GET', 'POST'])
+# Route to handle data upload and preprocessing
+@app.route('/preprocess', methods=['POST'])
 def preprocess():
-    if request.method == 'POST':
-        try:
-            # Assuming file input has a name 'file'
-            file = request.files['file']
-            if file:
-                # Read the uploaded file
-                df = pd.read_csv(file)
-                logging.info("File uploaded successfully.")
+    try:
+        # Assuming file input has a name 'file'
+        file = request.files['file']
+        if file:
+            # Read the uploaded file
+            df = pd.read_csv(file)
+            logging.info("File uploaded successfully.")
 
-                # Perform data preprocessing
-                for col in df.columns:
-                    if df[col].dtype == 'float64':
-                        df[col] = pd.to_numeric(df[col], downcast='float')
-                    elif df[col].dtype == 'int64':
-                        df[col] = pd.to_numeric(df[col], downcast='unsigned')
+            # Perform data preprocessing
+            for col in df.columns:
+                if df[col].dtype == 'float64':
+                    df[col] = pd.to_numeric(df[col], downcast='float')
+                elif df[col].dtype == 'int64':
+                    df[col] = pd.to_numeric(df[col], downcast='unsigned')
 
-                # Use category dtype for category column
-                df['type'] = df['type'].astype('category')
+            # Use category dtype for category column
+            df['type'] = df['type'].astype('category')
 
-                # Preprocessing pipelines
-                num_pipeline = make_pipeline(SimpleImputer(strategy='median'))
-                cat_pipeline = make_pipeline(SimpleImputer(strategy='most_frequent'), OneHotEncoder(handle_unknown='ignore'))
+            # Define features to remove
+            features_to_remove = [0, 4, 6, 7, 8]
 
-                global preprocessing
-                preprocessing = make_column_transformer(
-                    (num_pipeline, make_column_selector(dtype_include=np.number)),
-                    (cat_pipeline, make_column_selector(dtype_exclude=np.number))
-                )
+            # Perform data transformation and feature removal
+            X_train, y_train, _ = data_transformations_feature_removal(df, features_to_remove)
 
-                # Define features to remove
-                features_to_remove = [0, 4, 6, 7, 8]
+            # Train a new model (BalancedRandomForestClassifier)
+            global new_model
+            new_model = BalancedRandomForestClassifier(max_depth=None, min_samples_leaf=1,
+                                                       min_samples_split=5, n_estimators=500, n_jobs=-1,
+                                                       random_state=42)
+            new_model.fit(X_train, y_train)
+            logging.info("New model trained successfully.")
 
-                # Perform data transformation and feature removal
-                X_train, y_train, _ = data_transformations_feature_removal(df, features_to_remove)
+            # Save the new model
+            joblib.dump(new_model, 'new_model.pkl')
+            logging.info("New model saved successfully.")
 
-                # Train a new model (BalancedRandomForestClassifier)
-                global new_model
-                new_model = BalancedRandomForestClassifier(max_depth=None, min_samples_leaf=1,
-                                                           min_samples_split=5, n_estimators=500, n_jobs=-1,
-                                                           random_state=42)
-                new_model.fit(X_train, y_train)
-                logging.info("New model trained successfully.")
+    except Exception as e:
+        logging.error(f"Error during preprocessing: {e}")
+        return render_template('error.html', error_message=str(e))
 
-                # Save the new model
-                joblib.dump(new_model, 'new_model.pkl')
-                logging.info("New model saved successfully.")
-
-        except Exception as e:
-            logging.error(f"Error during preprocessing: {e}")
-            return render_template('error.html', error_message=str(e))
-
-    return render_template('preprocess.html')
+    return render_template('index.html', message="File uploaded and new model trained successfully.")
 
 def data_transformations_feature_removal(data, features_to_remove):
     try:
